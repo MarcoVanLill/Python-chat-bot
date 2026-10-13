@@ -21,14 +21,17 @@ class ChatRequest(BaseModel):
     )
     previous_response_id: ResponseId | None = Field(
         default=None,
-        description="The response_id returned by the previous turn, for multi-turn chat.",
-        examples=["resp_abc123"],
+        description=(
+            "The response_id (Gemini interaction ID) returned by the previous turn, "
+            "for multi-turn chat."
+        ),
+        examples=["interaction_abc123"],
     )
 
 
 class ChatResponse(BaseModel):
     message: str
-    response_id: str
+    response_id: str = Field(description="Gemini interaction ID for the next turn.")
     model: str
 
 
