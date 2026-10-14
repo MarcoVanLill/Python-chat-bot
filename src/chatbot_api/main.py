@@ -9,7 +9,7 @@ settings = get_settings()
 app = FastAPI(
     title=settings.app_name,
     version=settings.app_version,
-    description="A small chatbot API backed by the OpenAI Responses API.",
+    description="A small chatbot API backed by the Gemini Interactions API.",
 )
 app.include_router(chat_router)
 
@@ -25,4 +25,4 @@ async def api_info() -> ApiInfoResponse:
 
 @app.get("/health", response_model=HealthResponse, tags=["system"])
 async def health() -> HealthResponse:
-    return HealthResponse(llm_configured=settings.has_openai_api_key)
+    return HealthResponse(llm_configured=settings.has_gemini_api_key)

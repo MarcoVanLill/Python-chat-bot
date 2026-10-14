@@ -1,4 +1,5 @@
 from functools import lru_cache
+from typing import Literal
 
 from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -15,17 +16,21 @@ class Settings(BaseSettings):
 
     app_name: str = "Python Chatbot API"
     app_version: str = "0.1.0"
-    openai_api_key: SecretStr | None = None
-    openai_model: str = "gpt-6-luna"
-    openai_max_output_tokens: int = Field(default=1024, ge=16, le=128_000)
-    openai_timeout_seconds: float = Field(default=30.0, gt=0, le=300)
+    gemini_api_key: SecretStr | None = None
+    gemini_model: str = "gemini-3-flash-preview"
+    gemini_max_output_tokens: int = Field(default=65_536, ge=16, le=65_536)
+    gemini_timeout_seconds: float = Field(default=30.0, gt=0, le=300)
+    gemini_temperature: float = Field(default=1.0, ge=0, le=2)
+    gemini_top_p: float = Field(default=0.95, ge=0, le=1)
+    gemini_thinking_level: Literal["minimal", "low", "medium", "high"] = "high"
+    gemini_enable_google_search: bool = False
     chatbot_system_prompt: str = "You are a helpful, concise assistant."
 
     @property
-    def has_openai_api_key(self) -> bool:
-        if self.openai_api_key is None:
+    def has_gemini_api_key(self) -> bool:
+        if self.gemini_api_key is None:
             return False
-        value = self.openai_api_key.get_secret_value().strip()
+        value = self.gemini_api_key.get_secret_value().strip()
         return bool(value and value != "your_api_key_here")
 
 
