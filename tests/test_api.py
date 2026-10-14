@@ -1,7 +1,9 @@
+import pytest
 from fastapi.testclient import TestClient
 
+from chatbot_api.config import Settings
 from chatbot_api.dependencies import get_chat_service
-from chatbot_api.main import app
+from chatbot_api.main import app, create_app
 from chatbot_api.service import ChatResult, ChatServiceError
 
 
@@ -21,10 +23,49 @@ class FakeChatService:
 def test_health() -> None:
     with TestClient(app) as client:
         response = client.get("/health")
+        live_response = client.get("/health/live")
 
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
     assert isinstance(response.json()["llm_configured"], bool)
+    assert live_response.status_code == 200
+    assert live_response.json() == {"status": "alive"}
+    assert live_response.headers["X-Request-ID"]
+    assert live_response.headers["Cache-Control"] == "no-store"
+
+
+def test_readiness_reflects_provider_configuration() -> None:
+    ready_app = create_app(Settings(_env_file=None, gemini_api_key="test-key"))
+    not_ready_app = create_app(Settings(_env_file=None, gemini_api_key=None))
+
+    with TestClient(ready_app) as client:
+        ready_response = client.get("/health/ready")
+    with TestClient(not_ready_app) as client:
+        not_ready_response = client.get("/health/ready")
+
+    assert ready_response.status_code == 200
+    assert ready_response.json() == {"status": "ready", "llm_configured": True}
+    assert not_ready_response.status_code == 503
+    assert not_ready_response.json() == {
+        "status": "not_ready",
+        "llm_configured": False,
+    }
+
+
+def test_production_startup_requires_gemini_key() -> None:
+    production_settings = Settings(
+        _env_file=None,
+        app_environment="production",
+        app_docs_enabled=False,
+        gemini_api_key=None,
+    )
+    production_app = create_app(production_settings)
+
+    with (
+        pytest.raises(RuntimeError, match="GEMINI_API_KEY is required"),
+        TestClient(production_app),
+    ):
+        pass
 
 
 def test_chat_returns_provider_result_and_forwards_conversation_id() -> None:
@@ -85,6 +126,7 @@ class FailingChatService:
             "The provider is busy.",
             code="provider_rate_limited",
             status_code=429,
+            retry_after_seconds=30,
         )
 
 
@@ -98,6 +140,7 @@ def test_chat_returns_safe_provider_errors() -> None:
         app.dependency_overrides.clear()
 
     assert response.status_code == 429
+    assert response.headers["Retry-After"] == "30"
     assert response.json() == {
         "detail": {
             "code": "provider_rate_limited",

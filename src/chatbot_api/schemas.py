@@ -43,4 +43,13 @@ class HealthResponse(BaseModel):
 class ApiInfoResponse(BaseModel):
     name: str
     version: str
-    docs_url: str
+    docs_url: str | None
+
+
+class LivenessResponse(BaseModel):
+    status: Literal["alive"] = "alive"
+
+
+class ReadinessResponse(BaseModel):
+    status: Literal["ready", "not_ready"]
+    llm_configured: bool

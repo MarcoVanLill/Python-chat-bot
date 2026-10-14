@@ -1,8 +1,9 @@
+import asyncio
 from dataclasses import dataclass
 from typing import Protocol
 
 from google import genai
-from google.genai import errors
+from google.genai import errors, types
 from google.genai._gaos.lib import compat_errors as interaction_errors
 
 
@@ -18,10 +19,18 @@ class ChatService(Protocol):
 
 
 class ChatServiceError(Exception):
-    def __init__(self, message: str, *, code: str, status_code: int) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: str,
+        status_code: int,
+        retry_after_seconds: int | None = None,
+    ) -> None:
         super().__init__(message)
         self.code = code
         self.status_code = status_code
+        self.retry_after_seconds = retry_after_seconds
 
 
 class GeminiChatService:
@@ -33,31 +42,59 @@ class GeminiChatService:
         instructions: str,
         max_output_tokens: int,
         timeout_seconds: float,
-        temperature: float,
-        top_p: float,
+        retry_attempts: int,
+        request_timeout_seconds: float,
+        max_concurrent_requests: int,
+        retry_after_seconds: int,
         thinking_level: str,
         enable_google_search: bool,
         client: object | None = None,
     ) -> None:
-        self._client = client or genai.Client(api_key=api_key)
+        self._client = client or genai.Client(
+            api_key=api_key,
+            http_options=types.HttpOptions(
+                retry_options=types.HttpRetryOptions(
+                    attempts=retry_attempts,
+                    initial_delay=0.5,
+                    max_delay=2,
+                    exp_base=2,
+                    jitter=0.25,
+                )
+            ),
+        )
         self._model = model
         self._instructions = instructions
         self._max_output_tokens = max_output_tokens
         self._timeout_seconds = timeout_seconds
-        self._temperature = temperature
-        self._top_p = top_p
+        self._request_timeout_seconds = request_timeout_seconds
+        self._semaphore = asyncio.Semaphore(max_concurrent_requests)
+        self._retry_after_seconds = retry_after_seconds
         self._thinking_level = thinking_level
         self._enable_google_search = enable_google_search
 
     async def reply(self, message: str, previous_response_id: str | None) -> ChatResult:
+        try:
+            async with asyncio.timeout(self._request_timeout_seconds):
+                async with self._semaphore:
+                    return await self._reply(message, previous_response_id)
+        except TimeoutError as exc:
+            raise ChatServiceError(
+                "The language model timed out. Try again shortly.",
+                code="provider_timeout",
+                status_code=504,
+                retry_after_seconds=self._retry_after_seconds,
+            ) from exc
+
+    async def close(self) -> None:
+        await self._client.aio.aclose()
+
+    async def _reply(self, message: str, previous_response_id: str | None) -> ChatResult:
         request: dict[str, object] = {
             "model": self._model,
             "input": message,
             "system_instruction": self._instructions,
             "generation_config": {
-                "temperature": self._temperature,
                 "max_output_tokens": self._max_output_tokens,
-                "top_p": self._top_p,
                 "thinking_level": self._thinking_level,
             },
             "store": True,
@@ -72,11 +109,12 @@ class GeminiChatService:
                 **request,
                 timeout=self._timeout_seconds,
             )
-        except (TimeoutError, interaction_errors.APITimeoutError) as exc:
+        except interaction_errors.APITimeoutError as exc:
             raise ChatServiceError(
                 "The language model timed out. Try again shortly.",
                 code="provider_timeout",
                 status_code=504,
+                retry_after_seconds=self._retry_after_seconds,
             ) from exc
         except (
             interaction_errors.AuthenticationError,
@@ -92,6 +130,7 @@ class GeminiChatService:
                 "The language model quota was exceeded. Try again later or disable Google Search.",
                 code="provider_rate_limited",
                 status_code=429,
+                retry_after_seconds=self._retry_after_seconds,
             ) from exc
         except (
             interaction_errors.BadRequestError,
@@ -108,12 +147,14 @@ class GeminiChatService:
                 "The language model could not be reached.",
                 code="provider_unavailable",
                 status_code=503,
+                retry_after_seconds=self._retry_after_seconds,
             ) from exc
         except interaction_errors.InternalServerError as exc:
             raise ChatServiceError(
                 "The language model is temporarily unavailable.",
                 code="provider_unavailable",
                 status_code=503,
+                retry_after_seconds=self._retry_after_seconds,
             ) from exc
         except interaction_errors.APIStatusError as exc:
             raise ChatServiceError(
@@ -133,6 +174,7 @@ class GeminiChatService:
                     "The language model is temporarily rate limited. Try again shortly.",
                     code="provider_rate_limited",
                     status_code=429,
+                    retry_after_seconds=self._retry_after_seconds,
                 ) from exc
             if exc.code in {400, 404}:
                 raise ChatServiceError(
@@ -150,18 +192,21 @@ class GeminiChatService:
                 "The language model is temporarily unavailable.",
                 code="provider_unavailable",
                 status_code=503,
+                retry_after_seconds=self._retry_after_seconds,
             ) from exc
         except errors.APIError as exc:
             raise ChatServiceError(
                 "The language model could not be reached.",
                 code="provider_unavailable",
                 status_code=503,
+                retry_after_seconds=self._retry_after_seconds,
             ) from exc
         except interaction_errors.APIError as exc:
             raise ChatServiceError(
                 "The language model could not be reached.",
                 code="provider_unavailable",
                 status_code=503,
+                retry_after_seconds=self._retry_after_seconds,
             ) from exc
 
         output_text = (interaction.output_text or "").strip()

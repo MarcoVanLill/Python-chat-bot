@@ -21,9 +21,13 @@ async def chat(
     try:
         result = await service.reply(request.message, request.previous_response_id)
     except ChatServiceError as exc:
+        headers = None
+        if exc.retry_after_seconds is not None:
+            headers = {"Retry-After": str(exc.retry_after_seconds)}
         raise HTTPException(
             status_code=exc.status_code,
             detail={"code": exc.code, "message": str(exc)},
+            headers=headers,
         ) from exc
 
     return ChatResponse(

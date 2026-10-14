@@ -25,8 +25,10 @@ def get_chat_service() -> ChatService:
         instructions=settings.chatbot_system_prompt,
         max_output_tokens=settings.gemini_max_output_tokens,
         timeout_seconds=settings.gemini_timeout_seconds,
-        temperature=settings.gemini_temperature,
-        top_p=settings.gemini_top_p,
+        retry_attempts=settings.gemini_retry_attempts,
+        request_timeout_seconds=settings.chatbot_request_timeout_seconds,
+        max_concurrent_requests=settings.chatbot_max_concurrent_requests,
+        retry_after_seconds=settings.chatbot_retry_after_seconds,
         thinking_level=settings.gemini_thinking_level,
         enable_google_search=settings.gemini_enable_google_search,
     )

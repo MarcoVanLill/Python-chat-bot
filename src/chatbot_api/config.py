@@ -16,13 +16,19 @@ class Settings(BaseSettings):
 
     app_name: str = "Python Chatbot API"
     app_version: str = "0.1.0"
+    app_environment: Literal["development", "test", "production"] = "development"
+    app_docs_enabled: bool = True
+    cors_allowed_origins: list[str] = []
+    trusted_hosts: list[str] = []
+    chatbot_request_timeout_seconds: float = Field(default=45.0, gt=0, le=300)
+    chatbot_max_concurrent_requests: int = Field(default=20, ge=1, le=1_000)
+    chatbot_retry_after_seconds: int = Field(default=30, ge=1, le=3_600)
     gemini_api_key: SecretStr | None = None
-    gemini_model: str = "gemini-3-flash-preview"
-    gemini_max_output_tokens: int = Field(default=65_536, ge=16, le=65_536)
-    gemini_timeout_seconds: float = Field(default=30.0, gt=0, le=300)
-    gemini_temperature: float = Field(default=1.0, ge=0, le=2)
-    gemini_top_p: float = Field(default=0.95, ge=0, le=1)
-    gemini_thinking_level: Literal["minimal", "low", "medium", "high"] = "high"
+    gemini_model: str = "gemini-3.8-flash"
+    gemini_max_output_tokens: int = Field(default=4_096, ge=16, le=65_536)
+    gemini_timeout_seconds: float = Field(default=20.0, gt=0, le=300)
+    gemini_retry_attempts: int = Field(default=2, ge=1, le=5)
+    gemini_thinking_level: Literal["low", "medium", "high"] = "low"
     gemini_enable_google_search: bool = False
     chatbot_system_prompt: str = "You are a helpful, concise assistant."
 
